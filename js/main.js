@@ -43,6 +43,7 @@ async function init() {
     
     // 5. Inisialisasi Renderer, HUD, dan Audio Engine
     renderer = new Renderer(canvas, atlas);
+    renderer.setAtlasFunctions(atlas);
     hud = new HUD();
     audio = new AudioManager();
     
@@ -86,6 +87,10 @@ async function init() {
         audio.playAmbient();
         isAudioInitialized = true;
       }
+      // Mulai pointer lock
+      canvas.requestPointerLock({ unadjustedMovement: true }).catch(err => {
+        canvas.requestPointerLock().catch(console.error);
+      });
     });
 
     // 8. Sembunyikan loading screen dan mulai render loop
@@ -112,16 +117,29 @@ async function init() {
 }
 
 let lastTime = 0;
+let dayTime = 6000; // Mulai dari Noon (Minecraft scale: 24000 ticks = 20 mins)
 
 function gameLoop(timestamp) {
   // Cap delta time maksimum 50ms agar game tidak break jika tab ditinggalkan
   const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
   lastTime = timestamp;
 
+  // Update Waktu Dunia
+  dayTime += dt * 20; 
+  if (dayTime > 24000) dayTime -= 24000;
+  const timeProgress = dayTime / 24000;
+
   const input = getInputSnapshot();
   
   // Update Fisika Pemain
   player.update(dt, input, world);
+  
+  // Cek Interaksi Hit / Fall Damage
+  if (player.tookDamage) {
+    hud.showDamageEffect();
+    audio.playPlayerHurt();
+    player.tookDamage = false;
+  }
   
   // Audio Procedural Triggers (Movement & Env)
   const camPos = player.getCamera().pos;
@@ -144,10 +162,10 @@ function gameLoop(timestamp) {
   lastCamPos = camPos;
 
   // Streaming World Load & Unload berdasarkan radius (ESM Iterator optimasi ada di World class)
-  world.loadChunksAround(player.pos.x, player.pos.z, RENDER_DIST);
+  world.loadChunksAround(camPos.x, camPos.z, RENDER_DIST);
   
   // Render Grafis dan UI HUD
-  renderer.render(world, player, dt);
+  renderer.render(world, player, dt, timeProgress);
   hud.update(player, Math.round(1/dt), debugMode);
 
   requestAnimationFrame(gameLoop);

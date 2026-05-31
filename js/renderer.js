@@ -1,242 +1,302 @@
-import { RENDERER, COLORS, BLOCK } from './constants.js';
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+import { RENDERER, COLORS, BLOCK, CHUNK_SIZE, WORLD_HEIGHT } from './constants.js';
 import { FACE } from './textures.js';
 
 export class Renderer {
   #canvas;
-  #ctx;
+  #scene;
+  #camera;
+  #renderer;
+  #textureAtlas;
+  #chunkMeshes = new Map();
+  #pendingChunks = new Set();
+  #material;
+  #waterMaterial;
+  #highlightMesh;
   #atlas;
-  #imageData;
-  #pixels;
-  #zBuffer;
-  #width;
-  #height;
 
   constructor(canvas, atlas) {
     this.#canvas = canvas;
-    this.#ctx = canvas.getContext('2d', { alpha: false });
-    this.#atlas = atlas;
-    this.#width = RENDERER.CANVAS_W;
-    this.#height = RENDERER.CANVAS_H;
     
-    this.#canvas.width = this.#width;
-    this.#canvas.height = this.#height;
+    // Scene
+    this.#scene = new THREE.Scene();
+    this.#scene.background = new THREE.Color(COLORS.SKY_HORIZON);
+    this.#scene.fog = new THREE.Fog(COLORS.FOG_COLOR, RENDERER.FAR * 0.5 * CHUNK_SIZE, RENDERER.FAR * CHUNK_SIZE);
     
-    this.#imageData = this.#ctx.createImageData(this.#width, this.#height);
-    this.#pixels = new Uint32Array(this.#imageData.data.buffer);
-    this.#zBuffer = new Float32Array(this.#width);
+    // Camera
+    this.#camera = new THREE.PerspectiveCamera(RENDERER.FOV, window.innerWidth / window.innerHeight, RENDERER.NEAR, RENDERER.FAR * CHUNK_SIZE);
+    
+    // WebGL Renderer
+    this.#renderer = new THREE.WebGLRenderer({ canvas: this.#canvas, antialias: false });
+    this.#renderer.setSize(window.innerWidth, window.innerHeight);
+    this.#renderer.setPixelRatio(window.devicePixelRatio || 1);
+    
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    this.#scene.add(ambientLight);
+    
+    const dirLight = new THREE.DirectionalLight(0xFFFACD, 0.8);
+    dirLight.position.set(50, 100, 20);
+    this.#scene.add(dirLight);
+
+    // Textures
+    this.#textureAtlas = new THREE.CanvasTexture(atlas.canvas);
+    this.#textureAtlas.magFilter = THREE.NearestFilter;
+    this.#textureAtlas.minFilter = THREE.NearestFilter;
+    this.#textureAtlas.colorSpace = THREE.SRGBColorSpace;
+    
+    this.#material = new THREE.MeshLambertMaterial({
+      map: this.#textureAtlas,
+      vertexColors: true,
+      transparent: true,
+      alphaTest: 0.1, // untuk daun & kaca
+      side: THREE.FrontSide
+    });
+    
+    this.#waterMaterial = new THREE.MeshLambertMaterial({
+      map: this.#textureAtlas,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.8,
+      side: THREE.FrontSide
+    });
+
+    // Block Highlight Wireframe
+    const edgesGeom = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.01, 1.01, 1.01));
+    this.#highlightMesh = new THREE.LineSegments(edgesGeom, new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 }));
+    this.#highlightMesh.visible = false;
+    this.#scene.add(this.#highlightMesh);
+
+    // Resize event
+    window.addEventListener('resize', () => {
+      this.resize(window.innerWidth, window.innerHeight);
+    });
   }
 
   resize(width, height) {
-    this.#width = width;
-    this.#height = height;
-    this.#canvas.width = width;
-    this.#canvas.height = height;
-    this.#imageData = this.#ctx.createImageData(width, height);
-    this.#pixels = new Uint32Array(this.#imageData.data.buffer);
-    this.#zBuffer = new Float32Array(width);
+    this.#camera.aspect = width / height;
+    this.#camera.updateProjectionMatrix();
+    this.#renderer.setSize(width, height);
   }
 
-  #parseHexColor(hex) {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return { r, g, b };
-  }
-
-  render(world, player, deltaTime) {
-    const cam = player.getCamera();
-    const w = this.#width;
-    const h = this.#height;
+  #buildChunkGeometry(world, cx, cz) {
+    const key = `${cx},${cz}`;
+    if (!world.isChunkLoaded(cx, cz)) return;
     
-    // 1. SKY RENDER (Gradient background)
-    const topCol = this.#parseHexColor(COLORS.SKY_TOP);
-    const horCol = this.#parseHexColor(COLORS.SKY_HORIZON);
+    const chunk = world.getOrGenerateChunk(cx, cz);
     
-    for (let y = 0; y < h; y++) {
-      const t = y / h;
-      const r = topCol.r + t * (horCol.r - topCol.r);
-      const g = topCol.g + t * (horCol.g - topCol.g);
-      const b = topCol.b + t * (horCol.b - topCol.b);
-      // Little-endian Uint32: A B G R
-      const color = (255 << 24) | (b << 16) | (g << 8) | r;
-      for (let x = 0; x < w; x++) {
-        this.#pixels[y * w + x] = color;
-      }
-    }
-
-    // 2. TERRAIN RAYCASTING (Column-based 2.5D DDA)
-    const dirX = -Math.sin(cam.yaw);
-    const dirZ = -Math.cos(cam.yaw);
-    const fovScale = Math.tan((RENDERER.FOV * Math.PI / 180) / 2);
-    const planeX = Math.cos(cam.yaw) * fovScale;
-    const planeZ = -Math.sin(cam.yaw) * fovScale;
+    const positions = [];
+    const normals = [];
+    const uvs = [];
+    const colors = [];
+    const indices = [];
     
-    // Pitch memiringkan kamera (Y-shearing pada layar)
-    const pitchOffset = cam.pitch * h;
-    const screenCenter = h / 2 + pitchOffset;
+    const waterPositions = [];
+    const waterNormals = [];
+    const waterUvs = [];
+    const waterColors = [];
+    const waterIndices = [];
 
-    for (let x = 0; x < w; x++) {
-      const cameraX = 2 * x / w - 1;
-      const rayDirX = dirX + planeX * cameraX;
-      const rayDirZ = dirZ + planeZ * cameraX;
-      
-      let mapX = Math.floor(cam.pos.x);
-      let mapZ = Math.floor(cam.pos.z);
-      
-      const deltaDistX = Math.abs(1 / rayDirX);
-      const deltaDistZ = Math.abs(1 / rayDirZ);
-      
-      let stepX, stepZ, sideDistX, sideDistZ;
-      
-      if (rayDirX < 0) {
-        stepX = -1;
-        sideDistX = (cam.pos.x - mapX) * deltaDistX;
-      } else {
-        stepX = 1;
-        sideDistX = (mapX + 1.0 - cam.pos.x) * deltaDistX;
-      }
-      
-      if (rayDirZ < 0) {
-        stepZ = -1;
-        sideDistZ = (cam.pos.z - mapZ) * deltaDistZ;
-      } else {
-        stepZ = 1;
-        sideDistZ = (mapZ + 1.0 - cam.pos.z) * deltaDistZ;
-      }
-      
-      let perpWallDist = 0;
-      let side = 0;
-      
-      // y-buffer untuk oklusi pixel dalam satu kolom vertikal
-      const yDrawn = new Uint8Array(h);
-      let drawnCount = 0;
-      
-      // Rentang blok Y yang dirender (sekitar level mata pemain untuk performa)
-      const scanStartY = Math.floor(cam.pos.y) - 2;
-      const scanEndY = Math.floor(cam.pos.y) + 3;
-      
-      // 2D DDA grid traversal
-      while (drawnCount < h && perpWallDist < RENDERER.FAR) {
-        if (sideDistX < sideDistZ) {
-          sideDistX += deltaDistX;
-          mapX += stepX;
-          side = 0;
-        } else {
-          sideDistZ += deltaDistZ;
-          mapZ += stepZ;
-          side = 1;
-        }
-        
-        if (side === 0) perpWallDist = (mapX - cam.pos.x + (1 - stepX) / 2) / rayDirX;
-        else perpWallDist = (mapZ - cam.pos.z + (1 - stepZ) / 2) / rayDirZ;
-        
-        if (perpWallDist > RENDERER.FAR) break;
-        if (perpWallDist < 0.01) continue; // Mencegah glitch jarak sangat dekat
-        
-        const heightOnScreen = h / perpWallDist;
-        
-        // Render blok dalam rentang vertikal di koordinat mapX, mapZ ini
-        for (let y = scanEndY; y >= scanStartY; y--) {
-          const blockId = world.getBlock(mapX, y, mapZ);
+    let indexOffset = 0;
+    let waterIndexOffset = 0;
+    
+    const atlasW = this.#textureAtlas.image.width;
+    const atlasH = this.#textureAtlas.image.height;
+
+    for (let y = 0; y < WORLD_HEIGHT; y++) {
+      for (let z = 0; z < CHUNK_SIZE; z++) {
+        for (let x = 0; x < CHUNK_SIZE; x++) {
+          const idx = (y * CHUNK_SIZE * CHUNK_SIZE) + (z * CHUNK_SIZE) + x;
+          const blockId = chunk[idx];
+          if (blockId === BLOCK.AIR) continue;
           
-          if (blockId !== BLOCK.AIR) {
-            // Proyeksikan batas atas dan bawah blok ke layar
-            const blockBottomY = y;
-            const blockTopY = y + 1;
-            
-            let screenBottom = screenCenter + (cam.pos.y - blockBottomY) * heightOnScreen;
-            let screenTop = screenCenter + (cam.pos.y - blockTopY) * heightOnScreen;
-            
-            let drawTop = Math.floor(screenTop);
-            let drawBottom = Math.floor(screenBottom);
-            
-            if (drawTop < 0) drawTop = 0;
-            if (drawBottom >= h) drawBottom = h - 1;
-            
-            if (drawTop <= drawBottom) {
-              // Kalkulasi posisi tekstur (X)
-              let wallX;
-              if (side === 0) wallX = cam.pos.z + perpWallDist * rayDirZ;
-              else wallX = cam.pos.x + perpWallDist * rayDirX;
-              wallX -= Math.floor(wallX);
+          const isWater = blockId === BLOCK.WATER;
+          const worldX = cx * CHUNK_SIZE + x;
+          const worldY = y;
+          const worldZ = cz * CHUNK_SIZE + z;
+          
+          const checkNeighbor = (nx, ny, nz) => {
+            const nId = world.getBlock(worldX + nx, worldY + ny, worldZ + nz);
+            if (nId === BLOCK.AIR) return true;
+            if (isWater) return nId !== BLOCK.WATER && nId !== BLOCK.BEDROCK && nId !== BLOCK.STONE && nId !== BLOCK.DIRT && nId !== BLOCK.SAND; // optimalisasi air
+            // Daun dan Kaca itu transparan, jadi blok di belakangnya harus di render
+            return nId === BLOCK.WATER || nId === BLOCK.GLASS || nId === BLOCK.LEAVES;
+          };
+
+          const addFace = (dx, dy, dz, faceEnum, shade) => {
+            if (checkNeighbor(dx, dy, dz)) {
+              // Jika ini batas air bagian atas
+              if (isWater && dy === 1 && world.getBlock(worldX, worldY+1, worldZ) === BLOCK.WATER) return;
+
+              const faceUV = this.#atlas.getUV ? this.#atlas.getUV(blockId, faceEnum) : {u:0, v:0}; 
+              // u, v direturn oleh textures.js (biasanya berdasarkan offset di kanvas)
+              const eps = 0.05; // Bleed reduction
+              const u0 = (faceUV.u + eps) / atlasW;
+              const v0 = 1 - (faceUV.v + eps) / atlasH;
+              const u1 = (faceUV.u + 16 - eps) / atlasW;
+              const v1 = 1 - (faceUV.v + 16 - eps) / atlasH;
+
+              const wx = worldX;
+              const wy = worldY;
+              const wz = worldZ;
               
-              let texX = Math.floor(wallX * 16);
-              if (side === 0 && rayDirX > 0) texX = 16 - texX - 1;
-              if (side === 1 && rayDirZ < 0) texX = 16 - texX - 1;
-              
-              const face = side === 0 ? (stepX > 0 ? FACE.WEST : FACE.EAST) : (stepZ > 0 ? FACE.NORTH : FACE.SOUTH);
-              const uv = this.#atlas.getUV(blockId, face);
-              
-              // Shadow mapping pseudo
-              let shade = side === 1 ? 0.75 : 1.0;
-              
-              // Draw Vertical Strip (Pixel per Pixel)
-              for (let py = drawTop; py <= drawBottom; py++) {
-                if (!yDrawn[py]) {
-                  // Y-coordinate texture calculation
-                  const d = py - screenCenter + heightOnScreen * (y + 1 - cam.pos.y);
-                  const texY = Math.floor((d * 16) / heightOnScreen);
-                  const ty = Math.max(0, Math.min(15, texY));
-                  
-                  const texIdx = (ty * this.#atlas.imageData.width + uv.u + texX) * 4;
-                  const tr = this.#atlas.imageData.data[texIdx] * shade;
-                  const tg = this.#atlas.imageData.data[texIdx + 1] * shade;
-                  const tb = this.#atlas.imageData.data[texIdx + 2] * shade;
-                  const ta = this.#atlas.imageData.data[texIdx + 3];
-                  
-                  // Alpha test untuk transparansi daun/kaca
-                  if (ta > 10) {
-                    yDrawn[py] = 1;
-                    drawnCount++;
-                    // Fog blending (lerp ke horizon color)
-                    const fogFactor = Math.min(1.0, perpWallDist / RENDERER.FAR);
-                    const finalR = tr + fogFactor * (horCol.r - tr);
-                    const finalG = tg + fogFactor * (horCol.g - tg);
-                    const finalB = tb + fogFactor * (horCol.b - tb);
-                    
-                    this.#pixels[py * w + x] = (255 << 24) | (finalB << 16) | (finalG << 8) | finalR;
-                  }
-                }
+              let p1, p2, p3, p4;
+              if (dy === 1) { // TOP
+                p1 = [wx, wy+1, wz+1]; p2 = [wx+1, wy+1, wz+1]; p3 = [wx+1, wy+1, wz]; p4 = [wx, wy+1, wz];
+              } else if (dy === -1) { // BOTTOM
+                p1 = [wx, wy, wz]; p2 = [wx+1, wy, wz]; p3 = [wx+1, wy, wz+1]; p4 = [wx, wy, wz+1];
+              } else if (dx === 1) { // RIGHT
+                p1 = [wx+1, wy, wz+1]; p2 = [wx+1, wy, wz]; p3 = [wx+1, wy+1, wz]; p4 = [wx+1, wy+1, wz+1];
+              } else if (dx === -1) { // LEFT
+                p1 = [wx, wy, wz]; p2 = [wx, wy, wz+1]; p3 = [wx, wy+1, wz+1]; p4 = [wx, wy+1, wz];
+              } else if (dz === 1) { // FRONT
+                p1 = [wx, wy, wz+1]; p2 = [wx+1, wy, wz+1]; p3 = [wx+1, wy+1, wz+1]; p4 = [wx, wy+1, wz+1];
+              } else { // BACK
+                p1 = [wx+1, wy, wz]; p2 = [wx, wy, wz]; p3 = [wx, wy+1, wz]; p4 = [wx+1, wy+1, wz];
               }
+
+              const posArr = isWater ? waterPositions : positions;
+              const normArr = isWater ? waterNormals : normals;
+              const colArr = isWater ? waterColors : colors;
+              const uvArr = isWater ? waterUvs : uvs;
+              const indArr = isWater ? waterIndices : indices;
+              const offset = isWater ? waterIndexOffset : indexOffset;
+
+              posArr.push(...p1, ...p2, ...p3, ...p4);
+              for(let i=0; i<4; i++) normArr.push(dx, dy, dz);
+              for(let i=0; i<4; i++) colArr.push(shade, shade, shade);
+              uvArr.push(u0, v0, u1, v0, u1, v1, u0, v1);
+              
+              indArr.push(offset, offset+1, offset+2, offset, offset+2, offset+3);
+              
+              if (isWater) waterIndexOffset += 4;
+              else indexOffset += 4;
             }
-          }
+          };
+
+          addFace(1, 0, 0, FACE.EAST, 0.8);
+          addFace(-1, 0, 0, FACE.WEST, 0.8);
+          addFace(0, 1, 0, FACE.TOP, 1.0);
+          addFace(0, -1, 0, FACE.BOTTOM, 0.5);
+          addFace(0, 0, 1, FACE.SOUTH, 0.6);
+          addFace(0, 0, -1, FACE.NORTH, 0.6);
         }
       }
-      this.#zBuffer[x] = perpWallDist;
+    }
+    
+    // Remove old mesh if exist
+    if (this.#chunkMeshes.has(key)) {
+      const group = this.#chunkMeshes.get(key);
+      this.#scene.remove(group);
+      group.children.forEach(c => c.geometry.dispose());
+      this.#chunkMeshes.delete(key);
     }
 
-    // 3. WATER OVERLAY
+    if (positions.length > 0 || waterPositions.length > 0) {
+      const group = new THREE.Group();
+
+      if (positions.length > 0) {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+        geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+        geo.setIndex(indices);
+        group.add(new THREE.Mesh(geo, this.#material));
+      }
+
+      if (waterPositions.length > 0) {
+        const wGeo = new THREE.BufferGeometry();
+        wGeo.setAttribute('position', new THREE.Float32BufferAttribute(waterPositions, 3));
+        wGeo.setAttribute('normal', new THREE.Float32BufferAttribute(waterNormals, 3));
+        wGeo.setAttribute('color', new THREE.Float32BufferAttribute(waterColors, 3));
+        wGeo.setAttribute('uv', new THREE.Float32BufferAttribute(waterUvs, 2));
+        wGeo.setIndex(waterIndices);
+        group.add(new THREE.Mesh(wGeo, this.#waterMaterial));
+      }
+
+      this.#scene.add(group);
+      this.#chunkMeshes.set(key, group);
+    }
+  }
+
+  // Inject atlas yang dibikin di textures.js untuk referensi fungsi getUV
+  setAtlasFunctions(atlas) {
+    this.#atlas = atlas;
+  }
+
+  render(world, player, deltaTime, timeProgress = 0) {
+    // 1. Streaming Meshes (Optimalisasi stuttering)
+    const dirty = world.getAndClearDirtyChunks();
+    for (const key of dirty) this.#pendingChunks.add(key);
+    
+    // Batasi rebuild chunk menjadi max 3 per frame agar tidak lag
+    let processed = 0;
+    for (const key of this.#pendingChunks) {
+      const [cx, cz] = key.split(',').map(Number);
+      if (world.isChunkLoaded(cx, cz)) {
+        this.#buildChunkGeometry(world, cx, cz);
+      }
+      this.#pendingChunks.delete(key);
+      processed++;
+      if (processed >= 3) break;
+    }
+
+    // Cleanup unloaded chunks
+    for (const key of this.#chunkMeshes.keys()) {
+      const [cx, cz] = key.split(',').map(Number);
+      if (!world.isChunkLoaded(cx, cz)) {
+        const group = this.#chunkMeshes.get(key);
+        this.#scene.remove(group);
+        group.children.forEach(c => c.geometry.dispose());
+        this.#chunkMeshes.delete(key);
+      }
+    }
+
+    // 2. Camera Update
+    const cam = player.getCamera();
+    this.#camera.position.set(cam.pos.x, cam.pos.y, cam.pos.z);
+    this.#camera.rotation.set(cam.pitch, cam.yaw, 0, 'YXZ');
+
+    // 3. Highlight Raycast Hit
+    const dir = new THREE.Vector3(0, 0, -1).applyEuler(this.#camera.rotation);
+    const ray = world.raycast(cam.pos, dir, 5);
+    
+    if (ray && ray.hit && ray.blockId !== BLOCK.AIR && ray.blockId !== BLOCK.WATER) {
+      this.#highlightMesh.visible = true;
+      this.#highlightMesh.position.set(ray.pos[0] + 0.5, ray.pos[1] + 0.5, ray.pos[2] + 0.5);
+    } else {
+      this.#highlightMesh.visible = false;
+    }
+
+    // 4. Day / Night Cycle (Sine Wave Interpolation)
+    const angle = timeProgress * Math.PI * 2;
+    const sunLight = Math.sin(angle - Math.PI / 2); // 1 = Noon, -1 = Midnight
+    const intensity = Math.max(0.08, (sunLight + 0.2) / 1.2);
+
+    const skyH = new THREE.Color(COLORS.SKY_HORIZON).multiplyScalar(intensity);
+    const fogC = new THREE.Color(COLORS.FOG_COLOR).multiplyScalar(intensity);
+
+    this.#scene.background = skyH;
+    
+    this.#scene.children.forEach(c => {
+      if (c instanceof THREE.AmbientLight) c.intensity = 0.5 * intensity + 0.1;
+      if (c instanceof THREE.DirectionalLight) c.intensity = 0.9 * Math.max(0, sunLight);
+    });
+
+    // 5. Underwater Fog Effect Overrides Day/Night Fog
     const headBlock = world.getBlock(Math.floor(cam.pos.x), Math.floor(cam.pos.y), Math.floor(cam.pos.z));
     if (headBlock === BLOCK.WATER) {
-      for (let i = 0; i < this.#pixels.length; i++) {
-        const c = this.#pixels[i];
-        const r = c & 0xFF;
-        const g = (c >> 8) & 0xFF;
-        const b = (c >> 16) & 0xFF;
-        // Blend blue tint
-        const outR = r * 0.6 + 30 * 0.4;
-        const outG = g * 0.6 + 80 * 0.4;
-        const outB = b * 0.6 + 200 * 0.4;
-        this.#pixels[i] = (255 << 24) | (outB << 16) | (outG << 8) | outR;
-      }
+      this.#scene.fog.color.setHex(0x1a4099).multiplyScalar(Math.max(0.2, intensity));
+      this.#scene.fog.near = 0.1;
+      this.#scene.fog.far = 15;
+    } else {
+      this.#scene.fog.color.copy(fogC);
+      this.#scene.fog.near = RENDERER.FAR * 0.5 * CHUNK_SIZE;
+      this.#scene.fog.far = RENDERER.FAR * CHUNK_SIZE;
     }
 
-    // Eksekusi manipulasi raw pixel (Hanya 1x per frame)
-    this.#ctx.putImageData(this.#imageData, 0, 0);
-
-    // 4. BLOCK HIGHLIGHT
-    const ray = player.raycast ? player.raycast(world) : world.raycast(cam.pos, {
-      x: -Math.sin(cam.yaw) * Math.cos(cam.pitch),
-      y: Math.sin(cam.pitch),
-      z: -Math.cos(cam.yaw) * Math.cos(cam.pitch)
-    }, 5);
-
-    // Diimplementasikan secara sederhana sebagai center cross dot highlight via canvas API
-    // Pada pendekatan raycaster 2.5D, overlay crosshair/wireframe sulit diproyeksi sempurna
-    // Jadi cukup HUD crosshair standar (via hud.js) ditambah indikator hit di tengah.
-    if (ray && ray.hit) {
-      this.#ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-      this.#ctx.fillRect(w/2 - 2, h/2 - 2, 4, 4);
-    }
+    // Render 3D Scene
+    this.#renderer.render(this.#scene, this.#camera);
   }
 }

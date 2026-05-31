@@ -21,6 +21,14 @@ export class Player {
     this.#selectedSlot = 0;
     this.#bobbingAmount = 0;
     this.#bobbingTime = 0;
+    
+    this.health = 20;
+    this.tookDamage = false;
+    this.highestY = spawnY;
+    this.isFlying = false;
+    this.lastSpacePress = 0;
+    this.spaceWasPressed = false;
+    this.isSneaking = false;
 
     // Hotbar inisialisasi awal (9 slot)
     this.#inventory = [
@@ -81,24 +89,59 @@ export class Player {
       moveZ /= length;
     }
 
+    this.isSneaking = input.keys.has('shiftleft') || input.keys.has('shiftright');
     const isSprinting = input.keys.has('controlleft') || input.keys.has('controlright');
-    const speed = isSprinting ? PLAYER.SPRINT_SPEED : PLAYER.WALK_SPEED;
+    
+    let speed = PLAYER.WALK_SPEED;
+    if (this.isFlying) speed = PLAYER.SPRINT_SPEED * 2.5;
+    else if (isSprinting) speed = PLAYER.SPRINT_SPEED;
+    else if (this.isSneaking) speed = PLAYER.WALK_SPEED * 0.3;
 
     this.#velocity.x = moveX * speed;
     this.#velocity.z = moveZ * speed;
 
     // 4. Head Bobbing
-    if (length > 0 && this.#onGround) {
+    if (length > 0 && this.#onGround && !this.isFlying) {
       this.#bobbingTime += dt * speed;
       this.#bobbingAmount = Math.sin(this.#bobbingTime * 2.0) * 0.05;
     } else {
-      this.#bobbingAmount *= 0.9; // Smooth damping back to 0
+      this.#bobbingAmount *= 0.9;
     }
 
-    // 5. Gravity & Jump
-    this.#velocity.y += PLAYER.GRAVITY * dt;
-    if (input.keys.has('space') && this.#onGround) {
-      this.#velocity.y = PLAYER.JUMP_FORCE;
+    // 5. Physics: Flying, Swimming, Gravity
+    const headBlock = getBlock(world, Math.floor(this.#pos.x), Math.floor(this.#pos.y + PLAYER.EYE_OFFSET), Math.floor(this.#pos.z));
+    const feetBlock = getBlock(world, Math.floor(this.#pos.x), Math.floor(this.#pos.y), Math.floor(this.#pos.z));
+    const inWater = headBlock === BLOCK.WATER || feetBlock === BLOCK.WATER;
+
+    // Double-tap Space for Flying (Creative toggle)
+    if (input.keys.has('space')) {
+      if (!this.spaceWasPressed) {
+        const now = performance.now();
+        if (now - this.lastSpacePress < 300) {
+          this.isFlying = !this.isFlying;
+        }
+        this.lastSpacePress = now;
+      }
+      this.spaceWasPressed = true;
+    } else {
+      this.spaceWasPressed = false;
+    }
+
+    if (this.isFlying) {
+      this.#velocity.y = 0;
+      if (input.keys.has('space')) this.#velocity.y = PLAYER.WALK_SPEED;
+      if (this.isSneaking) this.#velocity.y = -PLAYER.WALK_SPEED;
+      this.highestY = this.#pos.y; // Reset fall distance
+    } else if (inWater) {
+      this.#velocity.y -= PLAYER.GRAVITY * 0.2 * dt; // Lambat tenggelam
+      if (this.#velocity.y < -2) this.#velocity.y = -2; // Terminal velocity di air
+      if (input.keys.has('space')) this.#velocity.y = 3;
+      this.highestY = this.#pos.y;
+    } else {
+      this.#velocity.y += PLAYER.GRAVITY * dt;
+      if (input.keys.has('space') && this.#onGround) {
+        this.#velocity.y = PLAYER.JUMP_FORCE;
+      }
     }
 
     // 6. Euler Integration with AABB Collision
@@ -118,8 +161,27 @@ export class Player {
     this.#pos.y += this.#velocity.y * dt;
     if (this.#checkCollision(world)) {
       this.#pos.y -= this.#velocity.y * dt;
-      if (this.#velocity.y < 0) this.#onGround = true;
+      if (this.#velocity.y < 0) {
+        this.#onGround = true;
+        
+        // Cek Fall Damage
+        const fallDist = this.highestY - this.#pos.y;
+        if (fallDist >= 4.0 && !this.isFlying && !inWater) {
+          const damage = Math.floor(fallDist - 3);
+          this.health -= damage;
+          if (this.health < 0) this.health = 0;
+          this.tookDamage = true;
+        }
+        this.highestY = this.#pos.y;
+      } else {
+        this.highestY = this.#pos.y;
+      }
       this.#velocity.y = 0;
+    }
+
+    // Update highestY untuk hitung fall damage
+    if (this.#velocity.y > 0 && !this.#onGround) {
+      if (this.#pos.y > this.highestY) this.highestY = this.#pos.y;
     }
 
     // 7. Raycasting untuk interaksi klik
@@ -135,10 +197,11 @@ export class Player {
   }
 
   getCamera() {
+    const currentEyeOffset = this.isSneaking ? PLAYER.EYE_OFFSET - 0.25 : PLAYER.EYE_OFFSET;
     return {
       pos: {
         x: this.#pos.x,
-        y: this.#pos.y + PLAYER.EYE_OFFSET + this.#bobbingAmount,
+        y: this.#pos.y + currentEyeOffset + this.#bobbingAmount,
         z: this.#pos.z
       },
       yaw: this.#yaw,
@@ -234,6 +297,17 @@ export class Player {
     const ray = this.#raycast(world);
     if (ray.hit && ray.blockId !== BLOCK.BEDROCK) {
       setBlock(world, ray.x, ray.y, ray.z, BLOCK.AIR);
+      
+      // Implementasi Block Drop mekanik ringan (langsung masuk inventory)
+      let dropId = ray.blockId;
+      if (dropId === BLOCK.GRASS) dropId = BLOCK.DIRT;
+      if (dropId === BLOCK.LEAVES) dropId = BLOCK.AIR; // Untuk membatasi inventory, leaves lenyap
+      
+      if (dropId !== BLOCK.AIR) {
+        const slot = this.#inventory.find(item => item.id === dropId);
+        if (slot && slot.count < 64) slot.count++;
+      }
+
       return ray.blockId;
     }
     return null;

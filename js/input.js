@@ -40,7 +40,9 @@ export function initInput(canvasElement) {
   const handlePointerLockChange = () => {
     InputState.isLocked = document.pointerLockElement === canvasElement;
     if (InputState.isLocked) {
-      document.documentElement.classList.add('debug-active'); // Placeholder jika dibutuhkan
+      canvasElement.classList.add('pointer-locked');
+    } else {
+      canvasElement.classList.remove('pointer-locked');
     }
   };
 
