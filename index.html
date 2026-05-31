@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <!-- HEAD -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Minecraft Browser Clone</title>
+  
+  <link rel="stylesheet" href="css/reset.css" media="all">
+  <link rel="stylesheet" href="css/base.css" media="all">
+  <link rel="stylesheet" href="css/layout.css" media="all">
+  <link rel="stylesheet" href="css/hud.css" media="all">
+</head>
+<body>
+
+  <!-- LOADING -->
+  <div id="loading-screen" aria-live="polite">
+    <p>Memuat Voxel...</p>
+  </div>
+
+  <!-- GAME -->
+  <main>
+    <div id="click-to-play">
+      <h2>Game Jeda</h2>
+      <p>Klik di sini untuk bermain</p>
+      <small>Gunakan <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> untuk berjalan, dan klik untuk berinteraksi.</small>
+    </div>
+    
+    <canvas id="game-canvas" role="application" aria-label="Minecraft Browser — game area">
+      Maaf, browser Anda tidak mendukung HTML5 Canvas yang diperlukan untuk menjalankan permainan ini.
+    </canvas>
+  </main>
+
+  <!-- HUD -->
+  <aside id="hud-overlay" aria-label="Antarmuka Permainan">
+    <div id="crosshair" aria-hidden="true"></div>
+    
+    <section id="debug-menu" aria-hidden="true">
+      <!-- Diupdate via JS berdasarkan GameState dan FPS -->
+      <p>FPS: <span id="debug-fps">0</span></p>
+      <p>XYZ: <span id="debug-xyz">0.00 / 0.00 / 0.00</span></p>
+      <p>Chunk: <span id="debug-chunk">0, 0</span></p>
+      <p>Facing: <span id="debug-facing">North</span></p>
+    </section>
+
+    <nav id="inventory-bar" aria-label="Hotbar">
+      <!-- Diisi oleh JS menggunakan hud-template -->
+    </nav>
+  </aside>
+
+  <template id="hud-template">
+    <button class="hotbar-slot" type="button">
+      <span class="slot-number"></span>
+      <div class="block-icon"></div>
+    </button>
+  </template>
+
+  <!-- SCRIPT -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

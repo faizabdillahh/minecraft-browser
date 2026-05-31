@@ -1,0 +1,47 @@
+@layer base;
+
+@property --health-pct {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 100%;
+}
+
+@property --sky-gradient-stop {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 50%;
+}
+
+@layer base {
+  :root {
+    /* Warna Blok (Minecraft-accurate) */
+    --color-grass-top: #5D9E3F;
+    --color-grass-side: #8B6914;
+    --color-dirt: #6B4423;
+    --color-stone: #808080;
+    --color-sand: #E8C975;
+    --color-wood: #5C3A1E;
+    --color-leaves: #2D6A2D;
+    --color-water: #3B6FE8;
+    --color-bedrock: #404040;
+    --color-sky-top: #1A6BA0;
+    --color-sky-horizon: #87CEEB;
+
+    /* Game UI */
+    --color-hud-bg: rgb(0 0 0 / 0.45);
+    --color-hotbar-border: #1D1D1D;
+    --color-hotbar-selected: #ffffff;
+    --color-health: #E03030;
+    --color-crosshair: #ffffff;
+
+    /* Layout */
+    --canvas-width: 800px;
+    --canvas-height: 500px;
+    --hud-height: 56px;
+    --hotbar-slot-size: 44px;
+
+    /* Typography */
+    --font-game: "Minecraft", "Courier New", monospace;
+    --font-ui: system-ui, sans-serif;
+  }
+}

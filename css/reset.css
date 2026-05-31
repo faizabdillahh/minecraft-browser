@@ -1,0 +1,44 @@
+@layer reset;
+
+@layer reset {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+  }
+
+  :root {
+    color-scheme: dark;
+    scrollbar-width: thin;
+  }
+
+  input, button, textarea, select {
+    font: inherit;
+  }
+
+  img, video, canvas {
+    display: block;
+    max-inline-size: 100%;
+  }
+
+  [role="list"] {
+    list-style: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-hotbar-selected, #ffffff);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
