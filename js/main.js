@@ -134,6 +134,12 @@ function gameLoop(timestamp) {
   // Update Fisika Pemain
   player.update(dt, input, world);
   
+  // Cek Kematian Pemain
+  if (player.health <= 0) {
+    player.respawn(world);
+    hud.showBlockLabel("ANDA MATI! RESPAWN...");
+  }
+  
   // Cek Interaksi Hit / Fall Damage
   if (player.tookDamage) {
     hud.showDamageEffect();

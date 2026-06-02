@@ -91,6 +91,12 @@ export class World {
     chunk[idx] = id;
     
     this.#dirtyChunks.add(key);
+    
+    // Perbarui chunk tetangga jika blok berada di perbatasan chunk
+    if (lx === 0) this.#dirtyChunks.add(`${cx - 1},${cz}`);
+    if (lx === CHUNK_SIZE - 1) this.#dirtyChunks.add(`${cx + 1},${cz}`);
+    if (lz === 0) this.#dirtyChunks.add(`${cx},${cz - 1}`);
+    if (lz === CHUNK_SIZE - 1) this.#dirtyChunks.add(`${cx},${cz + 1}`);
   }
 
   // Algoritma 3D DDA (Amanatides & Woo) untuk mendeteksi hit pada raycast target (misal screen center)

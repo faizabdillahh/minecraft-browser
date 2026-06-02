@@ -133,9 +133,10 @@ export class Player {
       if (this.isSneaking) this.#velocity.y = -PLAYER.WALK_SPEED;
       this.highestY = this.#pos.y; // Reset fall distance
     } else if (inWater) {
-      this.#velocity.y -= PLAYER.GRAVITY * 0.2 * dt; // Lambat tenggelam
-      if (this.#velocity.y < -2) this.#velocity.y = -2; // Terminal velocity di air
-      if (input.keys.has('space')) this.#velocity.y = 3;
+      this.#velocity.y += PLAYER.GRAVITY * 0.2 * dt; // Lambat tenggelam (GRAVITY bernilai negatif)
+      if (this.#velocity.y < -1.5) this.#velocity.y = -1.5; // Batas kecepatan tenggelam
+      if (input.keys.has('space')) this.#velocity.y = 2.0; // Berenang naik
+      if (this.isSneaking) this.#velocity.y = -2.0; // Tenggelam lebih cepat / berenang turun
       this.highestY = this.#pos.y;
     } else {
       this.#velocity.y += PLAYER.GRAVITY * dt;
@@ -234,69 +235,19 @@ export class Player {
     return false;
   }
 
-  #raycast(world) {
+  mine(world) {
     const cam = this.getCamera();
-    // Vektor arah dari kamera
     const dx = -Math.sin(cam.yaw) * Math.cos(cam.pitch);
     const dy = -Math.sin(cam.pitch);
     const dz = -Math.cos(cam.yaw) * Math.cos(cam.pitch);
+    const dir = { x: dx, y: dy, z: dz };
 
-    let x = Math.floor(cam.pos.x);
-    let y = Math.floor(cam.pos.y);
-    let z = Math.floor(cam.pos.z);
-
-    const stepX = Math.sign(dx);
-    const stepY = Math.sign(dy);
-    const stepZ = Math.sign(dz);
-
-    const tDeltaX = stepX !== 0 ? Math.abs(1 / dx) : Infinity;
-    const tDeltaY = stepY !== 0 ? Math.abs(1 / dy) : Infinity;
-    const tDeltaZ = stepZ !== 0 ? Math.abs(1 / dz) : Infinity;
-
-    let tMaxX = stepX > 0 ? (x + 1 - cam.pos.x) * tDeltaX : (cam.pos.x - x) * tDeltaX;
-    let tMaxY = stepY > 0 ? (y + 1 - cam.pos.y) * tDeltaY : (cam.pos.y - y) * tDeltaY;
-    let tMaxZ = stepZ > 0 ? (z + 1 - cam.pos.z) * tDeltaZ : (cam.pos.z - z) * tDeltaZ;
-
-    let face = { x: 0, y: 0, z: 0 };
-    let radius = PLAYER.REACH * 3; // iterasi maksimum grid voxel
-
-    while (radius-- > 0) {
-      if (tMaxX < tMaxY) {
-        if (tMaxX < tMaxZ) {
-          x += stepX;
-          tMaxX += tDeltaX;
-          face = { x: -stepX, y: 0, z: 0 };
-        } else {
-          z += stepZ;
-          tMaxZ += tDeltaZ;
-          face = { x: 0, y: 0, z: -stepZ };
-        }
-      } else {
-        if (tMaxY < tMaxZ) {
-          y += stepY;
-          tMaxY += tDeltaY;
-          face = { x: 0, y: -stepY, z: 0 };
-        } else {
-          z += stepZ;
-          tMaxZ += tDeltaZ;
-          face = { x: 0, y: 0, z: -stepZ };
-        }
-      }
-
-      if (y < 0 || y > 255) break;
-
-      const blockId = getBlock(world, x, y, z);
-      if (blockId !== BLOCK.AIR && blockId !== BLOCK.WATER) {
-        return { hit: true, x, y, z, face, blockId };
-      }
-    }
-    return { hit: false };
-  }
-
-  mine(world) {
-    const ray = this.#raycast(world);
-    if (ray.hit && ray.blockId !== BLOCK.BEDROCK) {
-      setBlock(world, ray.x, ray.y, ray.z, BLOCK.AIR);
+    const ray = world.raycast(cam.pos, dir, PLAYER.REACH);
+    if (ray && ray.hit && ray.blockId !== BLOCK.BEDROCK) {
+      const rx = ray.pos[0];
+      const ry = ray.pos[1];
+      const rz = ray.pos[2];
+      setBlock(world, rx, ry, rz, BLOCK.AIR);
       
       // Implementasi Block Drop mekanik ringan (langsung masuk inventory)
       let dropId = ray.blockId;
@@ -314,11 +265,17 @@ export class Player {
   }
 
   place(world, blockId) {
-    const ray = this.#raycast(world);
-    if (ray.hit) {
-      const px = ray.x + ray.face.x;
-      const py = ray.y + ray.face.y;
-      const pz = ray.z + ray.face.z;
+    const cam = this.getCamera();
+    const dx = -Math.sin(cam.yaw) * Math.cos(cam.pitch);
+    const dy = -Math.sin(cam.pitch);
+    const dz = -Math.cos(cam.yaw) * Math.cos(cam.pitch);
+    const dir = { x: dx, y: dy, z: dz };
+
+    const ray = world.raycast(cam.pos, dir, PLAYER.REACH);
+    if (ray && ray.hit) {
+      const px = ray.pos[0] + ray.face[0];
+      const py = ray.pos[1] + ray.face[1];
+      const pz = ray.pos[2] + ray.face[2];
 
       // Anti-clipping: Cegah blok diletakkan di dalam pemain
       const minX = Math.floor(this.#pos.x - 0.3);
@@ -336,5 +293,25 @@ export class Player {
       return true;
     }
     return false;
+  }
+
+  respawn(world) {
+    this.health = 20;
+    this.#velocity = { x: 0, y: 0, z: 0 };
+    this.isFlying = false;
+    this.isSneaking = false;
+    this.tookDamage = true;
+    
+    // Cari blok teratas sebagai titik Drop Spawn
+    let spawnY = 80;
+    for (let y = 255; y >= 0; y--) {
+      const block = getBlock(world, 8, y, 8);
+      if (block !== BLOCK.AIR && block !== BLOCK.WATER) {
+        spawnY = y + 1;
+        break;
+      }
+    }
+    this.#pos = { x: 8.5, y: spawnY, z: 8.5 };
+    this.highestY = spawnY;
   }
 }
