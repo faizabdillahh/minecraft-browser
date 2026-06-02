@@ -51,7 +51,7 @@ export function initInput(canvasElement) {
     InputState.isLocked = false;
   };
 
-  const handleClick = async (e) => {
+  const handleMouseDown = async (e) => {
     if (!InputState.isLocked) {
       try {
         // Request unadjustedMovement for raw mouse input in ES2026/modern browser
@@ -168,7 +168,7 @@ export function initInput(canvasElement) {
   document.addEventListener('keyup', handleKeyUp, { signal });
   document.addEventListener('wheel', handleWheel, { signal, passive: true });
 
-  canvasElement.addEventListener('click', handleClick, { signal });
+  canvasElement.addEventListener('mousedown', handleMouseDown, { signal });
   canvasElement.addEventListener('contextmenu', e => e.preventDefault(), { signal });
   canvasElement.addEventListener('touchstart', handleTouchStart, { signal, passive: false });
   canvasElement.addEventListener('touchmove', handleTouchMove, { signal, passive: false });
