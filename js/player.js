@@ -238,7 +238,7 @@ export class Player {
   mine(world) {
     const cam = this.getCamera();
     const dx = -Math.sin(cam.yaw) * Math.cos(cam.pitch);
-    const dy = -Math.sin(cam.pitch);
+    const dy = Math.sin(cam.pitch);
     const dz = -Math.cos(cam.yaw) * Math.cos(cam.pitch);
     const dir = { x: dx, y: dy, z: dz };
 
@@ -267,7 +267,7 @@ export class Player {
   place(world, blockId) {
     const cam = this.getCamera();
     const dx = -Math.sin(cam.yaw) * Math.cos(cam.pitch);
-    const dy = -Math.sin(cam.pitch);
+    const dy = Math.sin(cam.pitch);
     const dz = -Math.cos(cam.yaw) * Math.cos(cam.pitch);
     const dir = { x: dx, y: dy, z: dz };
 
