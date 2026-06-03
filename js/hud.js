@@ -54,6 +54,10 @@ export class HUD {
       canvas.style.height = '24px';
       iconContainer.appendChild(canvas);
       
+      slot.addEventListener('click', () => {
+        if (this.onSlotSelect) this.onSlotSelect(i);
+      });
+      
       this.#elements.slots.push({
         element: slot,
         ctx: canvas.getContext('2d', { alpha: true }),

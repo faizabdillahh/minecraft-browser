@@ -212,6 +212,11 @@ export class Player {
 
   get selectedBlock() { return this.#inventory[this.#selectedSlot].id; }
   get selectedSlot() { return this.#selectedSlot; }
+  set selectedSlot(index) {
+    if (index >= 0 && index < 9) {
+      this.#selectedSlot = index;
+    }
+  }
   get inventory() { return this.#inventory; }
 
   #checkCollision(world) {

@@ -45,6 +45,9 @@ async function init() {
     renderer = new Renderer(canvas, atlas);
     renderer.setAtlasFunctions(atlas);
     hud = new HUD();
+    hud.onSlotSelect = (index) => {
+      player.selectedSlot = index;
+    };
     audio = new AudioManager();
     
     // Monkey-patching Player untuk hook event Audio tanpa merusak enkapsulasi class
@@ -92,6 +95,17 @@ async function init() {
         canvas.requestPointerLock().catch(console.error);
       });
     });
+
+    // First touch on mobile initializes audio
+    const handleFirstTouch = () => {
+      if (!isAudioInitialized) {
+        audio.init();
+        audio.playAmbient();
+        isAudioInitialized = true;
+      }
+      document.removeEventListener('touchstart', handleFirstTouch);
+    };
+    document.addEventListener('touchstart', handleFirstTouch);
 
     // 8. Sembunyikan loading screen dan mulai render loop
     loadingScreen.classList.add('hidden');

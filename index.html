@@ -49,6 +49,25 @@
     </nav>
   </aside>
 
+  <!-- MOBILE UI -->
+  <div id="mobile-ui" class="mobile-only" aria-hidden="true">
+    <div id="joystick-container">
+      <div id="joystick-base">
+        <div id="joystick-knob"></div>
+      </div>
+    </div>
+    
+    <div id="mobile-actions">
+      <button id="btn-jump" class="mobile-btn" type="button" aria-label="Lompat">
+        <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2.5" fill="none"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      </button>
+      <div class="action-pair">
+        <button id="btn-mine" class="mobile-btn mine-btn" type="button" aria-label="Hancurkan">MINE</button>
+        <button id="btn-place" class="mobile-btn place-btn" type="button" aria-label="Pasang">PLACE</button>
+      </div>
+    </div>
+  </div>
+
   <template id="hud-template">
     <button class="hotbar-slot" type="button">
       <span class="slot-number"></span>

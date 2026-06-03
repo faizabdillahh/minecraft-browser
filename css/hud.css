@@ -161,4 +161,153 @@
   img, canvas, .block-icon {
     image-rendering: pixelated;
   }
+
+  /* Mobile UI */
+  .mobile-only {
+    display: none;
+  }
+
+  :root.mobile-active .mobile-only {
+    display: block;
+  }
+
+  :root.mobile-active #click-to-play {
+    display: none !important;
+  }
+
+  #mobile-ui {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    pointer-events: none;
+  }
+
+  #joystick-container {
+    position: absolute;
+    bottom: 30px;
+    left: 30px;
+    width: 120px;
+    height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    touch-action: none;
+  }
+
+  #joystick-base {
+    width: 100px;
+    height: 100px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    border-radius: 50%;
+    position: relative;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  }
+
+  #joystick-knob {
+    width: 44px;
+    height: 44px;
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+  }
+
+  #mobile-actions {
+    position: absolute;
+    bottom: 30px;
+    right: 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 15px;
+    pointer-events: auto;
+    touch-action: none;
+  }
+
+  .action-pair {
+    display: flex;
+    gap: 12px;
+  }
+
+  .mobile-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.4);
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    color: white;
+    font-family: var(--font-game);
+    font-size: 0.75rem;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    user-select: none;
+    -webkit-user-select: none;
+    transition: transform 0.1s, background-color 0.1s;
+    outline: none;
+  }
+
+  .mobile-btn:active {
+    transform: scale(0.9);
+    background: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.6);
+  }
+
+  .mine-btn {
+    background: rgba(239, 68, 68, 0.3);
+    border-color: rgba(239, 68, 68, 0.4);
+  }
+  
+  .mine-btn:active {
+    background: rgba(239, 68, 68, 0.6);
+  }
+
+  .place-btn {
+    background: rgba(16, 185, 129, 0.3);
+    border-color: rgba(16, 185, 129, 0.4);
+  }
+  
+  .place-btn:active {
+    background: rgba(16, 185, 129, 0.6);
+  }
+
+  #btn-jump {
+    width: 64px;
+    height: 64px;
+    background: rgba(59, 130, 246, 0.3);
+    border-color: rgba(59, 130, 246, 0.4);
+  }
+  
+  #btn-jump:active {
+    background: rgba(59, 130, 246, 0.6);
+  }
+
+  /* Make inventory responsive and touch-friendly on mobile */
+  @media (max-width: 600px) {
+    #inventory-bar {
+      bottom: 5px;
+      gap: 2px;
+      padding: 2px;
+    }
+    .hotbar-slot {
+      width: 36px;
+      height: 36px;
+    }
+    .hotbar-slot .slot-number {
+      font-size: 0.6rem;
+    }
+    #health-bar {
+      bottom: calc(var(--hud-height) - 10px);
+    }
+  }
 }
