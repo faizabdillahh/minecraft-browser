@@ -39,7 +39,7 @@ export const PLAYER = Object.freeze({
   SPRINT_SPEED: 5.6,
   JUMP_FORCE:   8.0,
   GRAVITY:     -25.0,
-  REACH:        5.0,
+  REACH:        10.0,
 });
 
 // Renderer configuration

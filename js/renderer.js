@@ -1,5 +1,5 @@
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-import { RENDERER, COLORS, BLOCK, CHUNK_SIZE, WORLD_HEIGHT } from './constants.js';
+import { RENDERER, COLORS, BLOCK, CHUNK_SIZE, WORLD_HEIGHT, PLAYER } from './constants.js';
 import { FACE } from './textures.js';
 
 export class Renderer {
@@ -260,7 +260,7 @@ export class Renderer {
 
     // 3. Highlight Raycast Hit
     const dir = new THREE.Vector3(0, 0, -1).applyEuler(this.#camera.rotation);
-    const ray = world.raycast(cam.pos, dir, 5);
+    const ray = world.raycast(cam.pos, dir, PLAYER.REACH);
     
     if (ray && ray.hit && ray.blockId !== BLOCK.AIR && ray.blockId !== BLOCK.WATER) {
       this.#highlightMesh.visible = true;
